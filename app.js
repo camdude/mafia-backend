@@ -38,6 +38,12 @@ const asignRoles = (roomId, roles) => {
   }
 };
 
+const clearVotes = (roomId) => {
+  for (var user in gameStates[roomId].userData) {
+    gameStates[roomId].userData[user].vote = [];
+  }
+};
+
 // user connection
 io.on("connection", (socket) => {
   clientList.push(socket.client.id);
@@ -57,6 +63,11 @@ io.on("connection", (socket) => {
         roles: [],
         ready: [],
         vote: [],
+        results: {
+          killed: null,
+          investigated: null,
+          saved: null,
+        },
       }; //initialise game
       console.log(`[Room:${data.room}] New game created by ${data.user}`);
     }
@@ -110,26 +121,60 @@ io.on("connection", (socket) => {
 
   // recieve vote from players
   socket.on("vote", (data) => {
-    switch (data.type) {
-      case "mafia": // mafia voting to kill
-        for (var user in gameStates[data.room].userData) {
-          if (gameStates[data.room].userData[user].vote.includes(data.user)) {
-            gameStates[data.room].userData[user].vote.splice(
-              gameStates[data.room].userData[user].vote.indexOf(data.user),
-              1
-            );
-          }
-        }
-        gameStates[data.room].userData[data.votedUser].vote.push(data.user);
+    // record vote
+    for (var user in gameStates[data.room].userData) {
+      if (gameStates[data.room].userData[user].vote.includes(data.user)) {
+        gameStates[data.room].userData[user].vote.splice(
+          gameStates[data.room].userData[user].vote.indexOf(data.user),
+          1
+        );
+      }
+    }
+    gameStates[data.room].userData[data.votedUser].vote.push(data.user);
 
-        // check for unanimous vote
+    // check for unanimous vote
+    switch (data.type) {
+      case "mafia":
         for (var user in gameStates[data.room].userData) {
-          console.log(user, gameStates[data.room].setup.mafia, gameStates[data.room].userData[user].vote.length)
           if (
-            Number(gameStates[data.room].setup.mafia) ===
+            gameStates[data.room].setup.mafia ===
             gameStates[data.room].userData[user].vote.length
           ) {
             gameStates[data.room].status = "detectiveAction";
+            console.log(gameStates[data.room]);
+            gameStates[data.room].results.killed = user;
+            clearVotes(data.room);
+          }
+        }
+        break;
+
+      case "detective":
+        for (var user in gameStates[data.room].userData) {
+          if (
+            gameStates[data.room].setup.detective ===
+            gameStates[data.room].userData[user].vote.length
+          ) {
+            gameStates[data.room].status = "doctorAction";
+            gameStates[data.room].results.investigated = user;
+            clearVotes(data.room);
+          }
+        }
+        break;
+
+      case "doctor":
+        for (var user in gameStates[data.room].userData) {
+          if (
+            gameStates[data.room].setup.doctor ===
+            gameStates[data.room].userData[user].vote.length
+          ) {
+            gameStates[data.room].status = "dayPhase";
+            gameStates[data.room].results.saved = user;
+            clearVotes(data.room);
+            console.log(`${gameStates[data.room].results.killed} was killed`);
+            console.log(
+              `${gameStates[data.room].results.investigated} was investigated`
+            );
+            console.log(`${gameStates[data.room].results.saved} was saved`);
           }
         }
         break;
