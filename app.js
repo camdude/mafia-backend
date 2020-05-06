@@ -38,9 +38,55 @@ const asignRoles = (roomId, roles) => {
   }
 };
 
+const nextAction = (roomId, toAction) => {
+  gameStates[roomId].status = toAction;
+  if (
+    gameStates[roomId].status === "mafiaAction" &&
+    gameStates[roomId].setup.mafia === 0
+  ) {
+    gameStates[roomId].status = "detectiveAction";
+  }
+  if (
+    gameStates[roomId].status === "detectiveAction" &&
+    gameStates[roomId].setup.detective === 0
+  ) {
+    gameStates[roomId].status = "doctorAction";
+  }
+  if (
+    gameStates[roomId].status === "doctorAction" &&
+    gameStates[roomId].setup.doctor === 0
+  ) {
+    gameStates[roomId].status = "dayPhase";
+    setTimeout(() => {
+      console.log("dayVote")
+      nextAction(roomId, "dayVote");
+      syncGame(roomId);
+    }, 5000);
+  }
+};
+
+const clearReady = (roomId) => {
+  for (var user in gameStates[roomId].userData) {
+    gameStates[roomId].userData[user].ready = false;
+    gameStates[roomId].ready = 0;
+  }
+};
+
 const clearVotes = (roomId) => {
   for (var user in gameStates[roomId].userData) {
     gameStates[roomId].userData[user].vote = [];
+  }
+};
+
+const calculateResult = (roomId) => {
+  if (gameStates[roomId].results.killed === gameStates[roomId].results.saved) {
+    console.log(
+      `[Room:${roomId}] ${gameStates[roomId].results.saved} was saved`
+    );
+  } else {
+    console.log(
+      `[Room:${roomId}] ${gameStates[roomId].results.killed} was killed`
+    );
   }
 };
 
@@ -60,7 +106,7 @@ io.on("connection", (socket) => {
         admin: data.user,
         userData: {},
         users: [],
-        roles: [],
+        setup: {},
         ready: [],
         vote: [],
         results: {
@@ -79,6 +125,7 @@ io.on("connection", (socket) => {
           role: null,
           ready: false,
           vote: [],
+          dead: false,
         };
         socket.join(data.room);
         console.log(`[Room:${data.room}] User ${data.user} joined`);
@@ -113,7 +160,8 @@ io.on("connection", (socket) => {
       Object.keys(gameStates[data.room].userData).length ===
       gameStates[data.room].ready
     ) {
-      gameStates[data.room].status = "mafiaAction";
+      nextAction(data.room, "mafiaAction");
+      clearReady(data.room);
     }
 
     syncGame(data.room);
@@ -140,8 +188,7 @@ io.on("connection", (socket) => {
             gameStates[data.room].setup.mafia ===
             gameStates[data.room].userData[user].vote.length
           ) {
-            gameStates[data.room].status = "detectiveAction";
-            console.log(gameStates[data.room]);
+            nextAction(data.room, "mafiaKill");
             gameStates[data.room].results.killed = user;
             clearVotes(data.room);
           }
@@ -154,8 +201,13 @@ io.on("connection", (socket) => {
             gameStates[data.room].setup.detective ===
             gameStates[data.room].userData[user].vote.length
           ) {
-            gameStates[data.room].status = "doctorAction";
+            nextAction(data.room, "detectiveInvestigation");
             gameStates[data.room].results.investigated = user;
+            console.log(
+              `[Room:${data.room}] ${
+                gameStates[data.room].results.investigated
+              } was investigated`
+            );
             clearVotes(data.room);
           }
         }
@@ -167,21 +219,66 @@ io.on("connection", (socket) => {
             gameStates[data.room].setup.doctor ===
             gameStates[data.room].userData[user].vote.length
           ) {
-            gameStates[data.room].status = "dayPhase";
+            nextAction(data.room, "doctorSave");
             gameStates[data.room].results.saved = user;
             clearVotes(data.room);
-            console.log(`${gameStates[data.room].results.killed} was killed`);
-            console.log(
-              `${gameStates[data.room].results.investigated} was investigated`
-            );
-            console.log(`${gameStates[data.room].results.saved} was saved`);
           }
+        }
+        break;
+      case "lynch":
+        for (var user in gameStates[data.room].userData) {
+          if (
+            Object.keys(gameStates[data.room].userData).length ===
+            gameStates[data.room].userData[user].vote.length
+          ) {
+            // TO DO
+            nextAction(data.room, "mafiaAction");
+            clearVotes(data.room);
+          }
+        }
+        break;
+      default:
+        break;
+    }
+    syncGame(data.room);
+  });
+
+  socket.on("confirmDecision", (data) => {
+    gameStates[data.room].userData[data.user].ready = true;
+    gameStates[data.room].ready++;
+    switch (data.type) {
+      case "mafia":
+        if (gameStates[data.room].setup.mafia === gameStates[data.room].ready) {
+          nextAction(data.room, "detectiveAction");
+          clearReady(data.room);
+        }
+        break;
+      case "detective":
+        if (
+          gameStates[data.room].setup.detective === gameStates[data.room].ready
+        ) {
+          nextAction(data.room, "doctorAction");
+          clearReady(data.room);
+        }
+        break;
+      case "doctor":
+        if (
+          gameStates[data.room].setup.doctor === gameStates[data.room].ready
+        ) {
+          nextAction(data.room, "dayPhase");
+          clearReady(data.room);
+          calculateResult(data.room);
+          setTimeout(() => {
+            nextAction(data.room, "dayVote");
+            syncGame(data.room);
+          }, 5000);
         }
         break;
 
       default:
         break;
     }
+
     syncGame(data.room);
   });
 
