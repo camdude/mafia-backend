@@ -57,8 +57,9 @@ const nextAction = (roomId, toAction) => {
     gameStates[roomId].setup.doctor === 0
   ) {
     gameStates[roomId].status = "dayPhase";
+    clearReady(roomId);
+    calculateResult(roomId);
     setTimeout(() => {
-      console.log("dayVote")
       nextAction(roomId, "dayVote");
       syncGame(roomId);
     }, 5000);
@@ -79,6 +80,7 @@ const clearVotes = (roomId) => {
 };
 
 const calculateResult = (roomId) => {
+  console.log("result");
   if (gameStates[roomId].results.killed === gameStates[roomId].results.saved) {
     console.log(
       `[Room:${roomId}] ${gameStates[roomId].results.saved} was saved`
@@ -87,6 +89,39 @@ const calculateResult = (roomId) => {
     console.log(
       `[Room:${roomId}] ${gameStates[roomId].results.killed} was killed`
     );
+
+    io.sockets.connected[
+      gameStates[roomId].userData[gameStates[roomId].results.killed].client
+    ].disconnect();
+    if (
+      gameStates[roomId].userData[gameStates[roomId].results.killed].role ===
+      "mafia"
+    ) {
+      gameStates[roomId].setup.mafia -= 1;
+    } else if (
+      gameStates[roomId].userData[gameStates[roomId].results.killed].role ===
+      "detective"
+    ) {
+      gameStates[roomId].setup.detective -= 1;
+    } else if (
+      gameStates[roomId].userData[gameStates[roomId].results.killed].role ===
+      "doctor"
+    ) {
+      gameStates[roomId].setup.doctor -= 1;
+    } else {
+      gameStates[roomId].setup.villager -= 1;
+    }
+    delete gameStates[roomId].userData[gameStates[roomId].results.killed]; //Tempoary
+
+    checkWin(roomId);
+  }
+};
+
+const checkWin = (roomId) => {
+  if (gameStates[roomId].setup.mafia === 0) {
+    nextAction(roomId, "winVillager");
+  } else if (gameStates[roomId].setup.detective+gameStates[roomId].setup.doctor+gameStates[roomId].setup.villager === 0) {
+    nextAction(roomId, "winMafia");
   }
 };
 
@@ -232,8 +267,44 @@ io.on("connection", (socket) => {
             gameStates[data.room].userData[user].vote.length
           ) {
             // TO DO
+            let lynched;
+            let voteCount = 0;
+            for (var user in gameStates[data.room].userData) {
+              if (
+                gameStates[data.room].userData[user].vote.length > voteCount
+              ) {
+                voteCount = gameStates[data.room].userData[user].vote.length;
+                lynched = user;
+              }
+            }
+            console.log(`[Room:${data.room}] ${lynched} was lynched`);
+
+            io.sockets.connected[
+              gameStates[data.room].userData[lynched].client
+            ].disconnect();
+            if (gameStates[data.room].userData[lynched].role === "mafia") {
+              gameStates[data.room].setup.mafia -= 1;
+            } else if (
+              gameStates[data.room].userData[lynched].role === "detective"
+            ) {
+              gameStates[data.room].setup.detective -= 1;
+            } else if (
+              gameStates[data.room].userData[lynched].role === "doctor"
+            ) {
+              gameStates[data.room].setup.doctor -= 1;
+            } else {
+              gameStates[data.room].setup.villager -= 1;
+            }
+            delete gameStates[data.room].userData[lynched]; //Tempoary
+
             nextAction(data.room, "mafiaAction");
             clearVotes(data.room);
+            gameStates[data.room].results = {
+              killed: null,
+              investigated: null,
+              saved: null,
+            };
+            checkWin(data.room);
           }
         }
         break;
