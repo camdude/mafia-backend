@@ -9,7 +9,9 @@
   "main": "index.js",
   "devDependencies": {},
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "start:dev": "nodemon dev.js",
+    "deploy": "now"
   },
   "author": "Cameron Clifford",
   "license": "ISC"
